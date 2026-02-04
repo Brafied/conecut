@@ -6,31 +6,33 @@ from tqdm import tqdm
 
 def calculate_accuracy(chosen_scores, rejected_scores):
     """Calculate accuracy based on chosen and rejected scores."""
-    chosen_np_arr = np.array(chosen_scores)
-    rejected_np_arr = np.array(rejected_scores)
+    chosen_scores_np = np.array(chosen_scores)
+    rejected_scores_np = np.array(rejected_scores)
     
-    comparison = chosen_np_arr > rejected_np_arr
+    comparison = chosen_scores_np > rejected_scores_np
+    
     accuracy = np.mean(comparison) * 100
     correct_indices = np.where(comparison)[0]
     
-    return accuracy, len(correct_indices), chosen_np_arr, rejected_np_arr, correct_indices
-def run_redundancy_tests(chosen_scores, rejected_scores, redundant_indices, total_dataset_size, section_name=None):
+    return accuracy, len(correct_indices), correct_indices
+
+def run_redundancy_tests(chosen_scores, rejected_scores, redundant_indices, total_dataset_size):
     """Run redundancy tests using pre-computed scores instead of re-running the model."""
     
     # Calculate accuracy and correct predictions for full dataset
-    full_accuracy, _, _, _, correct_indices = calculate_accuracy(chosen_scores, rejected_scores)
+    full_accuracy, _, correct_indices = calculate_accuracy(chosen_scores, rejected_scores)
     
     # 1. Test excluding redundant examples
     non_redundant_indices = [i for i in range(total_dataset_size) if i not in redundant_indices]
     chosen_non_redundant = [chosen_scores[i] for i in non_redundant_indices]
     rejected_non_redundant = [rejected_scores[i] for i in non_redundant_indices]
-    accuracy_non_redundant, correct_count_non_redundant, _, _, _ = calculate_accuracy(
+    accuracy_non_redundant, correct_count_non_redundant, _ = calculate_accuracy(
         chosen_non_redundant, rejected_non_redundant)
     
     # 2. Test only redundant examples
     chosen_redundant = [chosen_scores[i] for i in redundant_indices]
     rejected_redundant = [rejected_scores[i] for i in redundant_indices]
-    accuracy_redundant, correct_count_redundant, _, _, _ = calculate_accuracy(
+    accuracy_redundant, correct_count_redundant, _ = calculate_accuracy(
         chosen_redundant, rejected_redundant)
     
     # 3. Test random exclusion of same percentage
@@ -43,7 +45,7 @@ def run_redundancy_tests(chosen_scores, rejected_scores, redundant_indices, tota
     
     chosen_random = [chosen_scores[i] for i in random_keep_indices]
     rejected_random = [rejected_scores[i] for i in random_keep_indices]
-    accuracy_random, correct_count_random, _, _, _ = calculate_accuracy(
+    accuracy_random, correct_count_random, _ = calculate_accuracy(
         chosen_random, rejected_random)
     
     return {

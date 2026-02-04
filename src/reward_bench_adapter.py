@@ -286,4 +286,4 @@ def run_rm_subset(model_id: str,
     hid_ch = torch.cat(hid_ch)
     hid_rj = torch.cat(hid_rj)
 
-    return scores_ch, scores_rj, hid_ch, hid_rj, subsets
+    return hid_ch, hid_rj, scores_ch, scores_rj, subsets
