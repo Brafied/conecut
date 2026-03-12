@@ -1,2 +1,4 @@
 data/
+logging/
 __pycache__/
+*.sh

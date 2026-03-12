@@ -19,15 +19,15 @@ mkdir -p "$OUTDIR"
 LOGFILE="$OUTDIR/slurmjob-${SLURM_JOB_ID}-${SLURMD_NODENAME}.log"
 exec >"$LOGFILE" 2>&1
 
-
 module load cuda/12.8.1 miniforge3/latest
 conda activate conecut
 
 export HF_HOME=/scratch/general/vast/u1307785/huggingface_cache
 
-python -u src/model_test_llm_features_works_with_rm.py \
+python -u src/conecut.py \
     --model_id "Skywork/Skywork-Reward-V2-Llama-3.1-8B" \
     --subset_filter "full" \
     --determine_redundancy \
-    --solver "nnls" \
+    --reconstruction_algorithm "nnomp" \
     --epsilon 0.98 \
+    --nnomp_maximum_nonzero_coefficients 8 \
