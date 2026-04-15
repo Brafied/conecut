@@ -15,6 +15,7 @@ def parse_arguments():
     argument_parser = argparse.ArgumentParser()
     
     argument_parser.add_argument("--model_id", required=True, type=str, help="The Hugging Face model ID of the model whose representations will be used for redundancy detection.")
+    argument_parser.add_argument("--determine_redundancy", required=True, choices=["positive", "negative"], help="Run redundancy detection after generating activations and scores, evaluating the model on the selected subset, and caching the generated data.")
     argument_parser.add_argument("--reconstruction_algorithm", required=True, choices=["nnls", "nnomp"], help="The reconstruction algorithm redundancy detection will use.")
     argument_parser.add_argument("--epsilon", required=True, type=float, help="The reconstruction coefficient of determination (r^2) value below which an example will be considered non-redundant.")
     argument_parser.add_argument("--nnomp_maximum_nonzero_coefficients", type=int, help="The maximum number of nonzero coefficients nnomp will use in its reconstruction.")
@@ -39,7 +40,7 @@ def parse_arguments():
 def configure_logging(arguments):
     os.makedirs("logging", exist_ok=True)
 
-    logging_file_name = f"logging/augmentation_{arguments.parsed_model_id}_{arguments.reconstruction_algorithm}_{arguments.epsilon}"
+    logging_file_name = f"logging/augmentation_{arguments.parsed_model_id}_{arguments.determine_redundancy}_{arguments.reconstruction_algorithm}_{arguments.epsilon}"
     if arguments.reconstruction_algorithm == "nnomp":
         logging_file_name += f"_{arguments.nnomp_maximum_nonzero_coefficients}"
     logging_file_name += ".txt"
@@ -139,7 +140,7 @@ def augment_redundancy(arguments, activation_differences, augmentation_activatio
     combined_activation_differences = np.concatenate((activation_differences, augmentation_activation_differences), axis=0)
     logger.info("Completed concatenating base and augmentation activation differences.")
 
-    data_directory = f"data/{arguments.parsed_model_id}_augmentation_dataset/{arguments.reconstruction_algorithm}_{arguments.epsilon}"
+    data_directory = f"data/{arguments.parsed_model_id}_augmentation_dataset/{arguments.determine_redundancy}_{arguments.reconstruction_algorithm}_{arguments.epsilon}"
     if arguments.reconstruction_algorithm == "nnomp":
         data_directory += f"_{arguments.nnomp_maximum_nonzero_coefficients}"
 
@@ -180,6 +181,8 @@ def augment_redundancy(arguments, activation_differences, augmentation_activatio
 
         X = combined_activation_differences[non_redundant_examples_mask].T
         y = combined_activation_differences[i]
+        if arguments.determine_redundancy == "negative":
+            y = -y
 
         if arguments.reconstruction_algorithm == "nnls":
             coefficients_list, r2_list = non_negative_least_squares(y, X)
