@@ -60,7 +60,7 @@ def determine_redundancy(arguments, activation_differences):
     activation_differences /= np.linalg.norm(activation_differences, axis=1, keepdims=True)
     logger.info("Completed normalizing activation differences.")
 
-    data_directory = f"data/{arguments.parsed_model_id}_{arguments.subset_filter}/{arguments.reconstruction_algorithm}_{arguments.epsilon}"
+    data_directory = f"data/{arguments.parsed_model_id}_{arguments.subset_filter}/{arguments.determine_redundancy}_{arguments.reconstruction_algorithm}_{arguments.epsilon}"
     if arguments.reconstruction_algorithm == "nnomp":
         data_directory += f"_{arguments.nnomp_maximum_nonzero_coefficients}"
 
@@ -101,6 +101,8 @@ def determine_redundancy(arguments, activation_differences):
 
         X = activation_differences[non_redundant_examples_mask].T
         y = activation_differences[i]
+        if arguments.determine_redundancy == "negative":
+            y = -y
 
         if arguments.reconstruction_algorithm == "nnls":
             coefficients_list, r2_list = non_negative_least_squares(y, X)
@@ -109,10 +111,11 @@ def determine_redundancy(arguments, activation_differences):
 
         index_to_coefficients_list = []
         for coefficients in coefficients_list:
-            index_to_coefficients = {}
-            for index, coefficient in zip(np.where(non_redundant_examples_mask)[0], coefficients):
-                index_to_coefficients[index] = coefficient
-            index_to_coefficients_list.append(index_to_coefficients)
+            non_zero = coefficients != 0.0
+            index_to_coefficients_list.append({
+                "indices": np.where(non_redundant_examples_mask)[0][non_zero].astype(np.int32),
+                "coefficients": coefficients[non_zero].astype(np.float32),
+            })
 
         if r2_list[-1] >= arguments.epsilon:
             redundant_examples.append({
@@ -128,7 +131,7 @@ def determine_redundancy(arguments, activation_differences):
             })
     logger.info("Completed redundancy detection.")
     
-    logging.info("Saving redundancy results...")
+    logger.info("Saving redundancy results...")
     os.makedirs(data_directory, exist_ok=True)
     with open(data_directory + "/redundant_examples.pkl", "wb") as file:
         pickle.dump(redundant_examples, file)

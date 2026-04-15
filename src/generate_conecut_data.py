@@ -4,6 +4,8 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 import torch
 from torch.utils.data import DataLoader
 
+logger = logging.getLogger(__name__)
+
 subset_mapping = {
     "alpacaeval-easy": "chat",
     "alpacaeval-length": "chat",
@@ -32,8 +34,6 @@ subset_mapping = {
     "hep-python": "reasoning",
     "hep-rust": "reasoning"
 }
-
-logger = logging.getLogger(__name__)
 
 def apply_chat_template(prompt, response, tokenizer):
     templated_example = [{"role": "user", "content": prompt}, {"role": "assistant", "content": response}]
@@ -86,7 +86,7 @@ def generate_conecut_data(arguments):
         "Skywork/Skywork-Reward-V2-Llama-3.1-8B",
         torch_dtype=torch.bfloat16,
         device_map="cuda:0",
-        attn_implementation="flash_attention_2",
+        attn_implementation="eager",
         num_labels=1,
     )
     model.eval()

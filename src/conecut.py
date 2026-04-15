@@ -13,7 +13,7 @@ def parse_arguments():
 
     argument_parser.add_argument("--model_id", required=True, type=str, help="The Hugging Face model ID of the model whose representations will be used for redundancy detection.")
     argument_parser.add_argument("--subset_filter", required=True, choices=["chat", "chat_hard", "safety", "reasoning", "full"], help="The subset of RewardBench on which redundancy detection will be run.")
-    argument_parser.add_argument("--determine_redundancy", action="store_true", help="Run redundancy detection after generating activations and scores, evaluating the model on the selected subset, and caching the generated data.")
+    argument_parser.add_argument("--determine_redundancy", choices=["positive", "negative"], help="Run redundancy detection after generating activations and scores, evaluating the model on the selected subset, and caching the generated data.")
     argument_parser.add_argument("--reconstruction_algorithm", choices=["nnls", "nnomp"], help="The reconstruction algorithm redundancy detection will use.")
     argument_parser.add_argument("--epsilon", type=float, help="The reconstruction coefficient of determination (r^2) value below which an example will be considered non-redundant.")
     argument_parser.add_argument("--nnomp_maximum_nonzero_coefficients", type=int, help="The maximum number of nonzero coefficients nnomp will use in its reconstruction.")
@@ -46,7 +46,7 @@ def configure_logging(arguments):
 
     logging_file_name = f"logging/{arguments.parsed_model_id}_{arguments.subset_filter}"
     if arguments.determine_redundancy:
-        logging_file_name += f"_{arguments.reconstruction_algorithm}_{arguments.epsilon}"
+        logging_file_name += f"_{arguments.determine_redundancy}_{arguments.reconstruction_algorithm}_{arguments.epsilon}"
         if arguments.reconstruction_algorithm == "nnomp":
             logging_file_name += f"_{arguments.nnomp_maximum_nonzero_coefficients}"
     else:
