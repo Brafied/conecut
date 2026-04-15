@@ -20,7 +20,7 @@ This is operationalized using a non-negative reconstruction algorithm: an exampl
     python conecut.py \
       --model_id Skywork/Skywork-Reward-V2-Llama-3.1-8B \
       --subset_filter safety \
-      --determine_redundancy \
+      --determine_redundancy positive\
       --reconstruction_algorithm nnls \
       --epsilon 0.98
 
@@ -29,7 +29,7 @@ This is operationalized using a non-negative reconstruction algorithm: an exampl
     python conecut.py \
       --model_id Skywork/Skywork-Reward-V2-Llama-3.1-8B \
       --subset_filter safety \
-      --determine_redundancy \
+      --determine_redundancy positive \
       --reconstruction_algorithm nnomp \
       --epsilon 0.98 \
       --nnomp_maximum_nonzero_coefficients 8
