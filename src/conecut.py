@@ -85,7 +85,7 @@ def try_load_cache(arguments):
         activation_differences = pickle.load(file)
     with open(data_directory + "/chosen_scores.pkl", "rb") as file:
         chosen_scores = pickle.load(file)
-    with open(data_directory, "/rejected_scores.pkl", "rb") as file:
+    with open(data_directory + "/rejected_scores.pkl", "rb") as file:
         rejected_scores = pickle.load(file)
     with open(data_directory + "/subsets.pkl", "rb") as file:
         subsets = pickle.load(file)
