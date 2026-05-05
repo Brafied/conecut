@@ -96,6 +96,14 @@ def estimate_solid_angle(normalized_constraints, feasible_vector, scaling_factor
         log_w = (-(proposal_samples[proposal_samples_hit_mask] @ mu) + 0.5 * torch.dot(mu, mu)).to(torch.float64)
         log_sum_w = torch.logaddexp(log_sum_w, torch.logsumexp(log_w, dim=0))
         log_sum_w_squared = torch.logaddexp(log_sum_w_squared, torch.logsumexp(2.0 * log_w, dim=0))
+        if (i + 1) % (((sample_count + batch_size - 1) // batch_size) // 100) == 0:
+            log_sample_count = math.log(sample_count)
+            log_mean_w = (log_sum_w - log_sample_count).item()
+            log_mean_w_squared = (log_sum_w_squared - log_sample_count).item()
+            log_standard_error = 0.5 * (log_mean_w_squared + math.log1p(-math.exp(2.0 * log_mean_w - log_mean_w_squared)) - log_sample_count)
+            relative_standard_error = math.exp(0.5 * (log_mean_w_squared + math.log1p(-math.exp(2.0 * log_mean_w - log_mean_w_squared)) - log_sample_count) - log_mean_w)    
+            if relative_standard_error <= 0.01:
+                break
     log_sample_count = math.log(sample_count)
     log_mean_w = (log_sum_w - log_sample_count).item()
     log_mean_w_squared = (log_sum_w_squared - log_sample_count).item()
