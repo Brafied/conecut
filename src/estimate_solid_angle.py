@@ -66,50 +66,59 @@ def compute_feasible_vector(constraints, maximum_iterations):
     margin = (normalized_constraints @ feasible_vector).min().item()
     return feasible_vector, margin, normalized_constraints
 
-def perform_beta_pilot_search(normalized_constraints, feasible_vector, margin, sample_count, batch_size, beta_grid):
+def perform_beta_pilot_search(normalized_constraints, feasible_vector, beta_grid, margin, sample_count, batch_size, generator):
     best_beta = None
     best_relative_standard_error = None
     for beta in beta_grid:
         scaling_factor = float(beta / margin)
-        result = estimate_solid_angle(normalized_constraints, feasible_vector, scaling_factor, sample_count, batch_size)
-        logger.info(f"Beta: {beta:.6e}, Relative standard error: {result['relative_standard_error']:.6e}") # TEMP
+        result = estimate_solid_angle(normalized_constraints, feasible_vector, scaling_factor, sample_count, batch_size, generator)
         if best_relative_standard_error is None or result["relative_standard_error"] < best_relative_standard_error:
             best_relative_standard_error = result["relative_standard_error"]
             best_beta = beta
     return best_beta
 
 @torch.no_grad()
-def estimate_solid_angle(normalized_constraints, feasible_vector, scaling_factor, sample_count, batch_size):
-    generator = torch.Generator(device="cuda")
-    mu = scaling_factor * feasible_vector
-    logger.info(f"Mu norm {torch.linalg.vector_norm(mu).item():.6e}") # TEMP
+def estimate_solid_angle(normalized_constraints, mu, max_samples, max_batch_size, generator):
+    batch_count = (max_samples + max_batch_size - 1) // max_batch_size
+    
     log_sum_w = torch.tensor(float("-inf"), device="cuda", dtype=torch.float64)
     log_sum_w_squared = torch.tensor(float("-inf"), device="cuda", dtype=torch.float64)
-    for i, start in enumerate(range(0, sample_count, batch_size)): 
-        if (i + 1) % (((sample_count + batch_size - 1) // batch_size) // 10) == 0:
-            logger.info(f"Processing batch {i + 1} / {(sample_count + batch_size - 1) // batch_size}...")
-        standard_normal_samples = torch.randn((min(batch_size, sample_count - start), normalized_constraints.shape[1]), generator=generator, device="cuda", dtype=torch.float64)
+    sample_count = 0
+    for i, start in enumerate(range(0, max_samples, max_batch_size)): 
+        batch_size = min(max_batch_size, max_samples - start)
+        sample_count += batch_size
+        
+        if (i + 1) % (batch_count // 10) == 0:
+            logger.info(f"Processing batch {i + 1} / {batch_count}...")
+        
+        standard_normal_samples = torch.randn((batch_size, normalized_constraints.shape[1]), generator=generator, device="cuda", dtype=torch.float64)
         proposal_samples = standard_normal_samples + mu.unsqueeze(0)
+        
         proposal_samples_hit_mask = torch.all((normalized_constraints @ proposal_samples.T) >= 0, dim=0)
         if proposal_samples_hit_mask.sum().item() == 0:
             continue
+        
         log_w = (-(proposal_samples[proposal_samples_hit_mask] @ mu) + 0.5 * torch.dot(mu, mu)).to(torch.float64)
+        
         log_sum_w = torch.logaddexp(log_sum_w, torch.logsumexp(log_w, dim=0))
         log_sum_w_squared = torch.logaddexp(log_sum_w_squared, torch.logsumexp(2.0 * log_w, dim=0))
-        if (i + 1) % (((sample_count + batch_size - 1) // batch_size) // 100) == 0:
+        
+        if (i + 1) % (batch_count // 100) == 0:
             log_sample_count = math.log(sample_count)
             log_mean_w = (log_sum_w - log_sample_count).item()
             log_mean_w_squared = (log_sum_w_squared - log_sample_count).item()
             log_standard_error = 0.5 * (log_mean_w_squared + math.log1p(-math.exp(2.0 * log_mean_w - log_mean_w_squared)) - log_sample_count)
-            relative_standard_error = math.exp(0.5 * (log_mean_w_squared + math.log1p(-math.exp(2.0 * log_mean_w - log_mean_w_squared)) - log_sample_count) - log_mean_w)    
+            relative_standard_error = math.exp(log_standard_error - log_mean_w)
             if relative_standard_error <= 0.01:
                 break
+            
     log_sample_count = math.log(sample_count)
     log_mean_w = (log_sum_w - log_sample_count).item()
     log_mean_w_squared = (log_sum_w_squared - log_sample_count).item()
     log_standard_error = 0.5 * (log_mean_w_squared + math.log1p(-math.exp(2.0 * log_mean_w - log_mean_w_squared)) - log_sample_count)
     relative_standard_error = math.exp(log_standard_error - log_mean_w)
     effective_sample_size = math.exp((2.0 * log_sum_w - log_sum_w_squared).item())
+    
     return {
         "log_estimate": log_mean_w,
         "log_standard_error": log_standard_error,
@@ -124,27 +133,29 @@ def main():
 
     activation_differences = get_data(arguments)
     
-    log_estimates = []
-    log_standard_errors = []
-    relative_standard_errors = []
-    effective_sample_sizes = []
+    generator = torch.Generator(device="cuda")
+    
+    results = []
     for constraint_count in range(10, activation_differences.shape[0] + 1, 10):
-        logger.info(f"Estimating solid angle for {constraint_count} constraints...")
-        feasible_vector, margin, normalized_constraints = compute_feasible_vector(activation_differences[:constraint_count], 100_000)
+        logger.info(f"Estimating the solid angle of {constraint_count} constraints...")
+        
+        constraints = activation_differences[:constraint_count]
+        feasible_vector, margin, normalized_constraints = compute_feasible_vector(constraints, 1e5)
         if feasible_vector is None:
-            logger.info("No feasible vector found.")
+            logger.info("A feasible vector does not exist.")
             break
-        beta = perform_beta_pilot_search(normalized_constraints, feasible_vector, margin, 1_000_000_000, 2**18, np.arange(0.4, 0.8, 0.02))
-        scaling_factor = float(beta / margin)
-        result = estimate_solid_angle(normalized_constraints, feasible_vector, scaling_factor, 10_000_000_000, 2**18)
-        log_estimates.append(result["log_estimate"])
-        log_standard_errors.append(result["log_standard_error"])
-        relative_standard_errors.append(result["relative_standard_error"])
-        effective_sample_sizes.append(result["effective_sample_size"])
-        logger.info(f"log_estimates: {log_estimates}")
-        logger.info(f"log_standard_errors: {log_standard_errors}")
-        logger.info(f"relative_standard_errors: {relative_standard_errors}")
-        logger.info(f"effective_sample_sizes: {effective_sample_sizes}")
+        
+        beta_grid = np.arange(0.4, 0.8, 0.02)
+        beta = perform_beta_pilot_search(normalized_constraints, feasible_vector, beta_grid, margin, 1e9, 2**18, generator)
+        mu = float(beta / margin) * feasible_vector
+        
+        result = estimate_solid_angle(normalized_constraints, mu, 1e10, 2**18, generator)
+        results.append(result)
+        
+        logger.info(f"log_estimates: {[result['log_estimate'] for result in results]}")
+        logger.info(f"log_standard_errors: {[result['log_standard_error'] for result in results]}")
+        logger.info(f"relative_standard_errors: {[result['relative_standard_error'] for result in results]}")
+        logger.info(f"effective_sample_sizes: {[result['effective_sample_size'] for result in results]}")
 
 if __name__ == "__main__":
     main()
