@@ -41,90 +41,114 @@ def get_data(arguments):
 def compute_feasible_vector(constraints, maximum_iterations):
     constraints = constraints.to(device="cuda", dtype=torch.float64)
     normalized_constraints = constraints / torch.linalg.vector_norm(constraints, dim=1, keepdim=True)
+    
     current_estimate = normalized_constraints.mean(dim=0)
     for i in range(maximum_iterations):
         scores = normalized_constraints @ current_estimate
         target_vertex_index = torch.argmin(scores)
         target_vertex = normalized_constraints[target_vertex_index]
+        
         current_estimate_squared_norm = torch.dot(current_estimate, current_estimate)
         duality_gap = (current_estimate_squared_norm - scores[target_vertex_index]).item()
         if duality_gap <= 1e-10:
             break
+        
         target_vertex_direction = target_vertex - current_estimate
         step_size = torch.clamp((current_estimate_squared_norm - scores[target_vertex_index]) / torch.dot(target_vertex_direction, target_vertex_direction), 0.0, 1.0)
         current_estimate = current_estimate + step_size * target_vertex_direction
-        if (i + 1) % (maximum_iterations // 4) == 0:
+        
+        if (i + 1) % (maximum_iterations // 100) == 0:
             logger.info(
                 f"Current iteration: {i + 1}/{maximum_iterations}, "
                 f"Norm of current estimate: {torch.linalg.vector_norm(current_estimate).item():.6e}, "
                 f"duality gap: {duality_gap:.6e}"
             )
-    current_estimate_norm = torch.linalg.vector_norm(current_estimate)
-    if current_estimate_norm.item() <= 1e-10:
-        return None, None, normalized_constraints
-    feasible_vector = current_estimate / current_estimate_norm
-    margin = (normalized_constraints @ feasible_vector).min().item()
-    return feasible_vector, margin, normalized_constraints
-
-def perform_beta_pilot_search(normalized_constraints, feasible_vector, beta_grid, margin, sample_count, batch_size, generator):
-    best_beta = None
-    best_relative_standard_error = None
-    for beta in beta_grid:
-        scaling_factor = float(beta / margin)
-        result = estimate_solid_angle(normalized_constraints, feasible_vector, scaling_factor, sample_count, batch_size, generator)
-        if best_relative_standard_error is None or result["relative_standard_error"] < best_relative_standard_error:
-            best_relative_standard_error = result["relative_standard_error"]
-            best_beta = beta
-    return best_beta
+            
+    if torch.linalg.vector_norm(current_estimate).item() <= 1e-10:
+        return False, normalized_constraints
+    
+    return True, normalized_constraints
 
 @torch.no_grad()
-def estimate_solid_angle(normalized_constraints, mu, max_samples, max_batch_size, generator):
-    batch_count = (max_samples + max_batch_size - 1) // max_batch_size
+def estimate_level_probability(constraints, particles, samples_count, batch_size, gpu_generator):
+    batch_count = (samples_count + batch_size - 1) // batch_size
     
-    log_sum_w = torch.tensor(float("-inf"), device="cuda", dtype=torch.float64)
-    log_sum_w_squared = torch.tensor(float("-inf"), device="cuda", dtype=torch.float64)
-    sample_count = 0
-    for i, start in enumerate(range(0, max_samples, max_batch_size)): 
-        batch_size = min(max_batch_size, max_samples - start)
-        sample_count += batch_size
-        
+    survivors = []
+    for i, start in enumerate(range(0, samples_count, batch_size)):
         if (i + 1) % (batch_count // 10) == 0:
             logger.info(f"Processing batch {i + 1} / {batch_count}...")
-        
-        standard_normal_samples = torch.randn((batch_size, normalized_constraints.shape[1]), generator=generator, device="cuda", dtype=torch.float64)
-        proposal_samples = standard_normal_samples + mu.unsqueeze(0)
-        
-        proposal_samples_hit_mask = torch.all((normalized_constraints @ proposal_samples.T) >= 0, dim=0)
-        if proposal_samples_hit_mask.sum().item() == 0:
-            continue
-        
-        log_w = (-(proposal_samples[proposal_samples_hit_mask] @ mu) + 0.5 * torch.dot(mu, mu)).to(torch.float64)
-        
-        log_sum_w = torch.logaddexp(log_sum_w, torch.logsumexp(log_w, dim=0))
-        log_sum_w_squared = torch.logaddexp(log_sum_w_squared, torch.logsumexp(2.0 * log_w, dim=0))
-        
-        if (i + 1) % (batch_count // 100) == 0:
-            log_sample_count = math.log(sample_count)
-            log_mean_w = (log_sum_w - log_sample_count).item()
-            log_mean_w_squared = (log_sum_w_squared - log_sample_count).item()
-            log_standard_error = 0.5 * (log_mean_w_squared + math.log1p(-math.exp(2.0 * log_mean_w - log_mean_w_squared)) - log_sample_count)
-            relative_standard_error = math.exp(log_standard_error - log_mean_w)
-            if relative_standard_error <= 0.01:
-                break
             
-    log_sample_count = math.log(sample_count)
-    log_mean_w = (log_sum_w - log_sample_count).item()
-    log_mean_w_squared = (log_sum_w_squared - log_sample_count).item()
-    log_standard_error = 0.5 * (log_mean_w_squared + math.log1p(-math.exp(2.0 * log_mean_w - log_mean_w_squared)) - log_sample_count)
-    relative_standard_error = math.exp(log_standard_error - log_mean_w)
-    effective_sample_size = math.exp((2.0 * log_sum_w - log_sum_w_squared).item())
+        actual_batch_size = min(batch_size, samples_count - start)
+        if particles is None:
+            batch_samples = torch.randn(
+                (actual_batch_size, constraints.shape[1]),
+                generator=gpu_generator,
+                device="cuda",
+                dtype=constraints.dtype,
+            )
+        else:
+            batch_samples = particles[start: start + actual_batch_size]
+
+        batch_hit_mask = torch.all((constraints @ batch_samples.T) >= 0, dim=0)
+        if batch_hit_mask.any():
+            survivors.append(batch_samples[batch_hit_mask].to("cpu"))
+
+    survivors = torch.cat(survivors, dim=0)
     
+    estimate = len(survivors) / samples_count
+    log_estimate = math.log(estimate)
+    relative_standard_error = math.sqrt((1.0 - estimate) / (samples_count * estimate))
+    log_standard_error = (
+        -math.inf if relative_standard_error == 0.0
+        else math.log(relative_standard_error) + log_estimate
+    )
+    effective_sample_size = samples_count * estimate
+
     return {
-        "log_estimate": log_mean_w,
-        "log_standard_error": log_standard_error,
+        "survivors": survivors,
+        "estimate": estimate,
+        "log_estimate": log_estimate,
         "relative_standard_error": relative_standard_error,
-        "effective_sample_size": effective_sample_size
+        "log_standard_error": log_standard_error,
+        "effective_sample_size": effective_sample_size,
     }
+    
+@torch.no_grad()
+def rejuvenate_particles(survivors, constraints, target_particle_count, cpu_generator, gpu_generator, step_size=0.01, steps=500):
+    resample_indices = torch.randint(
+        low=0,
+        high=survivors.shape[0],
+        size=(target_particle_count,),
+        generator=cpu_generator,
+    )
+    particles = survivors[resample_indices].to("cuda").clone()
+
+    for _ in range(steps):
+        noise = torch.randn(
+            (target_particle_count, particles.shape[1]),
+            generator=gpu_generator,
+            device="cuda",
+            dtype=particles.dtype,
+        )
+        proposals = particles + step_size * noise
+
+        proposal_hit_mask = torch.all((constraints @ proposals.T) >= 0, dim=0)
+        if not proposal_hit_mask.any():
+            continue
+
+        log_accept_ratio = 0.5 * (torch.sum(particles[proposal_hit_mask] ** 2, dim=1) - torch.sum(proposals[proposal_hit_mask] ** 2, dim=1))
+        uniform_log = torch.log(
+            torch.rand(
+                log_accept_ratio.shape,
+                generator=gpu_generator,
+                device="cuda",
+                dtype=particles.dtype,
+            )
+        )
+        accepted_indices = torch.nonzero(proposal_hit_mask, as_tuple=False).squeeze(1)[uniform_log < log_accept_ratio]
+        particles[accepted_indices] = proposals[accepted_indices]
+
+    return particles
 
 def main():
     arguments = parse_arguments()
@@ -133,29 +157,40 @@ def main():
 
     activation_differences = get_data(arguments)
     
-    generator = torch.Generator(device="cuda")
+    logging.info("Computing the max margin feasible vector satisfying all constraint vectors...")
+    has_feasible_vector, normalized_constraints = compute_feasible_vector(activation_differences, int(1e5))
+    if not has_feasible_vector:
+        logger.info("Max margin feasible vector not found.")
+        return
+    logger.info("Max margin feasible vector found.")
     
+    gpu_generator = torch.Generator(device="cuda")
+    cpu_generator = torch.Generator(device="cpu")
+    particles = None
     results = []
-    for constraint_count in range(10, activation_differences.shape[0] + 1, 10):
+    for constraint_count in range(1, activation_differences.shape[0] + 1, 1):
         logger.info(f"Estimating the solid angle of {constraint_count} constraints...")
+
+        normalized_constraints_slice = normalized_constraints[:constraint_count].to(dtype=torch.float32)
+        result = estimate_level_probability(normalized_constraints_slice, particles, 2**19, 2**15, gpu_generator)
+        results.append({
+            "log_estimate": result["log_estimate"],
+            "log_standard_error": result["log_standard_error"],
+            "relative_standard_error": result["relative_standard_error"],
+            "effective_sample_size": result["effective_sample_size"],
+        })
         
-        constraints = activation_differences[:constraint_count]
-        feasible_vector, margin, normalized_constraints = compute_feasible_vector(constraints, 1e5)
-        if feasible_vector is None:
-            logger.info("A feasible vector does not exist.")
-            break
+        particles = rejuvenate_particles(result["survivors"], normalized_constraints_slice, 2**19, cpu_generator, gpu_generator)
         
-        beta_grid = np.arange(0.4, 0.8, 0.02)
-        beta = perform_beta_pilot_search(normalized_constraints, feasible_vector, beta_grid, margin, 1e9, 2**18, generator)
-        mu = float(beta / margin) * feasible_vector
-        
-        result = estimate_solid_angle(normalized_constraints, mu, 1e10, 2**18, generator)
-        results.append(result)
-        
+        del result
+        torch.cuda.empty_cache()
+
+        logger.info(f"cumulative_log_estimate: {sum(result['log_estimate'] for result in results)}")
+        logger.info(f"cumulative_relative_standard_error: {math.sqrt(sum(result['relative_standard_error'] ** 2 for result in results))}")
         logger.info(f"log_estimates: {[result['log_estimate'] for result in results]}")
         logger.info(f"log_standard_errors: {[result['log_standard_error'] for result in results]}")
         logger.info(f"relative_standard_errors: {[result['relative_standard_error'] for result in results]}")
         logger.info(f"effective_sample_sizes: {[result['effective_sample_size'] for result in results]}")
-
+        
 if __name__ == "__main__":
     main()
