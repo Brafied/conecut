@@ -4,7 +4,6 @@ import os
 import pickle
 import torch
 import math
-import numpy as np
 
 logger = logging.getLogger(__name__)
 

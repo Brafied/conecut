@@ -57,7 +57,6 @@ def generate_activation_pca_data():
 
     return chosen_activations, rejected_activations
 
-
 def run_pca(activations, variance_thresholds):
     pca = PCA()
     pca.fit(activations.float().cpu().numpy())
