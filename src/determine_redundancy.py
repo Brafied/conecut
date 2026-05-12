@@ -60,7 +60,7 @@ def determine_redundancy(arguments, activation_differences):
     activation_differences /= np.linalg.norm(activation_differences, axis=1, keepdims=True)
     logger.info("Completed normalizing activation differences.")
 
-    data_directory = f"data/{arguments.parsed_model_id}_{arguments.subset_filter}/{arguments.determine_redundancy}_{arguments.reconstruction_algorithm}_{arguments.epsilon}"
+    data_directory = f"data/rb2/{arguments.parsed_model_id}_{arguments.subset_filter}/{arguments.determine_redundancy}_{arguments.reconstruction_algorithm}_{arguments.epsilon}"
     if arguments.reconstruction_algorithm == "nnomp":
         data_directory += f"_{arguments.nnomp_maximum_nonzero_coefficients}"
 

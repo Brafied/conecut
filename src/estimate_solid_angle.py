@@ -20,9 +20,9 @@ def parse_arguments():
     return arguments
 
 def configure_logging(arguments):
-    os.makedirs("logging", exist_ok=True)
+    os.makedirs("logging/rb2", exist_ok=True)
 
-    logging_file_name = f"logging/activation_difference_solid_angle_{arguments.parsed_model_id}.txt"
+    logging_file_name = f"logging/rb2/activation_difference_solid_angle_{arguments.parsed_model_id}.txt"
 
     logging.basicConfig(filename=logging_file_name, level=logging.INFO)
 

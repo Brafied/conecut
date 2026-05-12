@@ -38,9 +38,9 @@ def parse_arguments():
     return arguments
 
 def configure_logging(arguments):
-    os.makedirs("logging", exist_ok=True)
+    os.makedirs("logging_rb2", exist_ok=True)
 
-    logging_file_name = f"logging/augmentation_{arguments.parsed_model_id}_{arguments.determine_redundancy}_{arguments.reconstruction_algorithm}_{arguments.epsilon}"
+    logging_file_name = f"logging_rb2/augmentation_{arguments.parsed_model_id}_{arguments.determine_redundancy}_{arguments.reconstruction_algorithm}_{arguments.epsilon}"
     if arguments.reconstruction_algorithm == "nnomp":
         logging_file_name += f"_{arguments.nnomp_maximum_nonzero_coefficients}"
     logging_file_name += ".txt"

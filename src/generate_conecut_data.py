@@ -6,35 +6,6 @@ from torch.utils.data import DataLoader
 
 logger = logging.getLogger(__name__)
 
-subset_mapping = {
-    "alpacaeval-easy": "chat",
-    "alpacaeval-length": "chat",
-    "alpacaeval-hard": "chat",
-    "mt-bench-easy": "chat",
-    "mt-bench-med": "chat",
-
-    "mt-bench-hard": "chat_hard",
-    "llmbar-natural": "chat_hard",
-    "llmbar-adver-neighbor": "chat_hard",
-    "llmbar-adver-GPTInst": "chat_hard",
-    "llmbar-adver-GPTOut": "chat_hard",
-    "llmbar-adver-manual": "chat_hard",
-
-    "refusals-dangerous": "safety",
-    "refusals-offensive": "safety",
-    "xstest-should-refuse": "safety",
-    "xstest-should-respond": "safety",
-    "donotanswer": "safety",
-
-    "math-prm": "reasoning",
-    "hep-cpp": "reasoning",
-    "hep-go": "reasoning",
-    "hep-java": "reasoning",
-    "hep-js": "reasoning",
-    "hep-python": "reasoning",
-    "hep-rust": "reasoning"
-}
-
 def apply_chat_template(prompt, response, tokenizer):
     templated_example = [{"role": "user", "content": prompt}, {"role": "assistant", "content": response}]
     templated_example = tokenizer.apply_chat_template(templated_example, tokenize=False)
@@ -81,7 +52,7 @@ def run_inference(examples, model, tokenizer):
 
 def generate_conecut_data(arguments):
     logger.info("Loading dataset, model, and tokenizer...")
-    dataset = load_dataset("allenai/reward-bench", split="filtered")
+    dataset = load_dataset("allenai/reward-bench-2", split="test")
     model = AutoModelForSequenceClassification.from_pretrained(
         "Skywork/Skywork-Reward-V2-Llama-3.1-8B",
         torch_dtype=torch.bfloat16,
@@ -95,15 +66,17 @@ def generate_conecut_data(arguments):
 
     if arguments.subset_filter != "full":
         logger.info("Filtering dataset using subset filter...")
-        dataset = dataset.filter(lambda example: subset_mapping[example["subset"]] == arguments.subset_filter)
+        dataset = dataset.filter(lambda example: example["subset"] == arguments.subset_filter)
         logger.info("Completed filtering dataset using subset filter.")
 
     logger.info("Applying chat template to dataset...")
     templated_chosen_examples = []
     templated_rejected_examples = []
     for example in dataset:
-        templated_chosen_examples.append(apply_chat_template(example["prompt"], example["chosen"], tokenizer))
-        templated_rejected_examples.append(apply_chat_template(example["prompt"], example["rejected"], tokenizer))
+        for chosen_example in example["chosen"]:
+            for rejected_example in example["rejected"]:
+                templated_chosen_examples.append(apply_chat_template(example["prompt"], chosen_example, tokenizer))
+                templated_rejected_examples.append(apply_chat_template(example["prompt"], rejected_example, tokenizer))
     logger.info("Completed applying chat template to dataset.")
 
     logger.info("Running inference on the templated examples...")
@@ -112,7 +85,11 @@ def generate_conecut_data(arguments):
     logger.info("Completed running inference on the templated examples.")
 
     logger.info("Extracting example subset labels...")
-    subsets = [example["subset"] for example in dataset]
+    subsets = []
+    for example in dataset:
+        for _ in example["chosen"]:
+            for _ in example["rejected"]:
+                subsets.append(example["subset"])
     logger.info("Completed extracting example subset labels.")
 
     return chosen_activations - rejected_activations, chosen_scores, rejected_scores, subsets

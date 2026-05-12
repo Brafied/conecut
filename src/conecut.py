@@ -12,7 +12,7 @@ def parse_arguments():
     argument_parser = argparse.ArgumentParser()
 
     argument_parser.add_argument("--model_id", required=True, type=str, help="The Hugging Face model ID of the model whose representations will be used for redundancy detection.")
-    argument_parser.add_argument("--subset_filter", required=True, choices=["chat", "chat_hard", "safety", "reasoning", "full"], help="The subset of RewardBench on which redundancy detection will be run.")
+    argument_parser.add_argument("--subset_filter", required=True, choices=["Factuality", "Focus", "Math", "Precise IF", "Safety", "Ties", "full"], help="The subset of RewardBench on which redundancy detection will be run.")
     argument_parser.add_argument("--determine_redundancy", choices=["positive", "negative"], help="Run redundancy detection after generating activations and scores, evaluating the model on the selected subset, and caching the generated data.")
     argument_parser.add_argument("--reconstruction_algorithm", choices=["nnls", "nnomp"], help="The reconstruction algorithm redundancy detection will use.")
     argument_parser.add_argument("--epsilon", type=float, help="The reconstruction coefficient of determination (r^2) value below which an example will be considered non-redundant.")
@@ -42,9 +42,9 @@ def parse_arguments():
     return arguments
 
 def configure_logging(arguments):
-    os.makedirs("logging", exist_ok=True)
+    os.makedirs("logging/rb2", exist_ok=True)
 
-    logging_file_name = f"logging/{arguments.parsed_model_id}_{arguments.subset_filter}"
+    logging_file_name = f"logging/rb2/{arguments.parsed_model_id}_{arguments.subset_filter}"
     if arguments.determine_redundancy:
         logging_file_name += f"_{arguments.determine_redundancy}_{arguments.reconstruction_algorithm}_{arguments.epsilon}"
         if arguments.reconstruction_algorithm == "nnomp":
@@ -76,7 +76,7 @@ def get_conecut_data(arguments):
     return activation_differences, chosen_scores, rejected_scores, subsets
 
 def try_load_cache(arguments):
-    data_directory = f"data/{arguments.parsed_model_id}_{arguments.subset_filter}"
+    data_directory = f"data_rb2/{arguments.parsed_model_id}_{arguments.subset_filter}"
     
     if not os.path.isdir(data_directory):
         return None, None, None, None
@@ -93,7 +93,7 @@ def try_load_cache(arguments):
     return activation_differences, chosen_scores, rejected_scores, subsets
 
 def save_cache(arguments, activation_differences, chosen_scores, rejected_scores, subsets):
-    data_directory = f"data/{arguments.parsed_model_id}_{arguments.subset_filter}/"
+    data_directory = f"data/rb2/{arguments.parsed_model_id}_{arguments.subset_filter}/"
     
     os.makedirs(data_directory, exist_ok=True)
 
